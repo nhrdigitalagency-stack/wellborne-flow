@@ -16,7 +16,7 @@ export function ProtectedRoute({
   children: React.ReactNode;
   allowedRoles?: UserRole[];
 }) {
-  const { firebaseUser, profile, loading } = useAuth();
+  const { firebaseUser, emailVerified, profile, loading } = useAuth();
 
   if (loading) {
     return (
@@ -37,7 +37,7 @@ export function ProtectedRoute({
     return <Navigate to="/connexion" replace />;
   }
 
-  if (!firebaseUser.emailVerified) {
+  if (!emailVerified) {
     return <Navigate to="/verification-email" replace />;
   }
 

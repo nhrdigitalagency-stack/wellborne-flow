@@ -70,7 +70,7 @@ const ROUTE_TITLES: Record<string, string> = {
 export function AppLayout() {
   const { profile, orgSettings } = useAuth();
   const { isDark, toggleTheme } = useTheme();
-  const { unreadCount, managedAssignments, myAssignments } = useWorkspace();
+  const { unreadCount, managedAssignments, myAssignments, syncError, retrySync } = useWorkspace();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
@@ -388,6 +388,21 @@ export function AppLayout() {
         </header>
 
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1440px] w-full mx-auto">
+          {syncError && (
+            <div
+              role="alert"
+              className="mb-5 px-4 py-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#172D4D] dark:text-amber-100"
+            >
+              <span>{syncError}</span>
+              <button
+                type="button"
+                onClick={() => void retrySync()}
+                className="px-3 py-1.5 font-semibold text-white bg-[#3578C8] rounded-md hover:bg-[#2a63a8] whitespace-nowrap self-start sm:self-auto cursor-pointer"
+              >
+                Réessayer
+              </button>
+            </div>
+          )}
           <Outlet />
         </main>
       </div>

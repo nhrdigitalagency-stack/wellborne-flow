@@ -34,11 +34,12 @@ export function MyTasksPage() {
   } = useWorkspace();
   const [searchParams] = useSearchParams();
   const initialStatus = searchParams.get('statut') || 'all';
+  const initialPriority = searchParams.get('priorite') || 'all';
 
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>(initialStatus);
-  const [priorityFilter, setPriorityFilter] = useState<string>('all');
+  const [priorityFilter, setPriorityFilter] = useState<string>(initialPriority);
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [labelFilter, setLabelFilter] = useState<string>('all');
   const [pubFilter, setPubFilter] = useState<string>('all');

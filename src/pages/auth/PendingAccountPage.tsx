@@ -1,13 +1,25 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Clock, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { getDefaultRouteForRole } from '../../routes/ProtectedRoute';
 import { logoutUser } from '../../services/auth/authService';
 import { AuthShell } from './AuthShell';
 
 export function PendingAccountPage() {
-  const { profile } = useAuth();
+  const { firebaseUser, emailVerified, profile } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!firebaseUser) return;
+    if (!emailVerified) {
+      navigate('/verification-email', { replace: true });
+      return;
+    }
+    if (profile && profile.accountStatus === 'active') {
+      navigate(getDefaultRouteForRole(profile.role), { replace: true });
+    }
+  }, [firebaseUser, emailVerified, profile, navigate]);
 
   const isSuspended = profile?.accountStatus === 'suspended';
 

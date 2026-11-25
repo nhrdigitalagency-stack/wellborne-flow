@@ -22,7 +22,7 @@ import type {
 } from '../../types';
 import { clampManualProgress, computeAutoProgress, sanitizeText } from '../../utils/taskUtils';
 import { recordAuditLog } from '../audit/auditService';
-import { db, handleFirestoreError, OperationType } from '../firebase/config';
+import { db, handleFirestoreError, logFirestoreError, OperationType } from '../firebase/config';
 import { createNotification } from '../notifications/notificationService';
 
 export interface CreateTaskInput {
@@ -391,7 +391,11 @@ export async function removeSubtask(
   }
 }
 
-export function subscribeMyTasks(uid: string, onData: (tasks: Task[]) => void): () => void {
+export function subscribeMyTasks(
+  uid: string,
+  onData: (tasks: Task[]) => void,
+  onError?: (error: unknown) => void
+): () => void {
   const path = 'tasks';
   const q = query(collection(db, path), where('ownerId', '==', uid));
   return onSnapshot(
@@ -403,11 +407,17 @@ export function subscribeMyTasks(uid: string, onData: (tasks: Task[]) => void): 
         .sort((a, b) => (b.updatedAt?.toMillis?.() || 0) - (a.updatedAt?.toMillis?.() || 0));
       onData(list);
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => {
+      logFirestoreError(error, OperationType.LIST, path);
+      onError?.(error);
+    }
   );
 }
 
-export function subscribePublishedTasks(onData: (tasks: Task[]) => void): () => void {
+export function subscribePublishedTasks(
+  onData: (tasks: Task[]) => void,
+  onError?: (error: unknown) => void
+): () => void {
   const path = 'tasks';
   const q = query(collection(db, path), where('publicationStatus', '==', 'published'));
   return onSnapshot(
@@ -419,11 +429,18 @@ export function subscribePublishedTasks(onData: (tasks: Task[]) => void): () => 
         .sort((a, b) => (b.updatedAt?.toMillis?.() || 0) - (a.updatedAt?.toMillis?.() || 0));
       onData(list);
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => {
+      logFirestoreError(error, OperationType.LIST, path);
+      onError?.(error);
+    }
   );
 }
 
-export function subscribeTaskById(taskId: string, onData: (task: Task | null) => void): () => void {
+export function subscribeTaskById(
+  taskId: string,
+  onData: (task: Task | null) => void,
+  onError?: (error: unknown) => void
+): () => void {
   const path = `tasks/${taskId}`;
   return onSnapshot(
     doc(db, 'tasks', taskId),
@@ -434,7 +451,10 @@ export function subscribeTaskById(taskId: string, onData: (task: Task | null) =>
       }
       onData({ id: snap.id, ...(snap.data() as Omit<Task, 'id'>) });
     },
-    (error) => handleFirestoreError(error, OperationType.GET, path)
+    (error) => {
+      logFirestoreError(error, OperationType.GET, path);
+      onError?.(error);
+    }
   );
 }
 
@@ -442,7 +462,8 @@ export function subscribeTaskSubtasks(
   taskId: string,
   ownerId: string,
   isPublished: boolean,
-  onData: (subtasks: Subtask[]) => void
+  onData: (subtasks: Subtask[]) => void,
+  onError?: (error: unknown) => void
 ): () => void {
   const path = `tasks/${taskId}/subtasks`;
   const q = isPublished
@@ -457,7 +478,10 @@ export function subscribeTaskSubtasks(
         .sort((a, b) => a.order - b.order);
       onData(items);
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => {
+      logFirestoreError(error, OperationType.LIST, path);
+      onError?.(error);
+    }
   );
 }
 
@@ -465,7 +489,8 @@ export function subscribeTaskComments(
   taskId: string,
   visibility: 'company' | 'private',
   authorUid: string,
-  onData: (comments: TaskComment[]) => void
+  onData: (comments: TaskComment[]) => void,
+  onError?: (error: unknown) => void
 ): () => void {
   const path = 'comments';
   // Requête mono-champ conforme aux règles allow list (aucun index composite requis)
@@ -483,7 +508,10 @@ export function subscribeTaskComments(
         .sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0));
       onData(list);
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => {
+      logFirestoreError(error, OperationType.LIST, path);
+      onError?.(error);
+    }
   );
 }
 

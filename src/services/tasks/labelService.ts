@@ -12,7 +12,7 @@ import {
 import type { TaskLabel, TaskLabelColor, TaskLabelGroup, UserPrivate } from '../../types';
 import { sanitizeText } from '../../utils/taskUtils';
 import { recordAuditLog } from '../audit/auditService';
-import { db, handleFirestoreError, OperationType } from '../firebase/config';
+import { db, handleFirestoreError, logFirestoreError, OperationType } from '../firebase/config';
 
 export interface SaveTaskLabelInput {
   name: string;
@@ -26,7 +26,10 @@ const GROUP_ORDER: Record<TaskLabelGroup, number> = {
   project_type: 2,
 };
 
-export function subscribeTaskLabels(onData: (labels: TaskLabel[]) => void): () => void {
+export function subscribeTaskLabels(
+  onData: (labels: TaskLabel[]) => void,
+  onError?: (error: unknown) => void
+): () => void {
   const path = 'taskLabels';
   const q = query(collection(db, path), where('workspaceVisibility', '==', 'company'));
   return onSnapshot(
@@ -41,7 +44,10 @@ export function subscribeTaskLabels(onData: (labels: TaskLabel[]) => void): () =
         });
       onData(list);
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => {
+      logFirestoreError(error, OperationType.LIST, path);
+      onError?.(error);
+    }
   );
 }
 

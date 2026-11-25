@@ -20,7 +20,7 @@ import type {
 } from '../../types';
 import { sanitizeText } from '../../utils/taskUtils';
 import { recordAuditLog } from '../audit/auditService';
-import { db, handleFirestoreError, OperationType } from '../firebase/config';
+import { db, handleFirestoreError, logFirestoreError, OperationType } from '../firebase/config';
 import { createNotification } from '../notifications/notificationService';
 
 export interface CreateMissionInput {
@@ -439,7 +439,8 @@ export async function reviewMissionSubmission(
 
 export function subscribeMyAssignments(
   employeeUid: string,
-  onData: (items: MissionAssignment[]) => void
+  onData: (items: MissionAssignment[]) => void,
+  onError?: (error: unknown) => void
 ): () => void {
   const path = 'missionAssignments';
   const q = query(collection(db, path), where('employeeId', '==', employeeUid));
@@ -451,14 +452,18 @@ export function subscribeMyAssignments(
         .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
       onData(list);
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => {
+      logFirestoreError(error, OperationType.LIST, path);
+      onError?.(error);
+    }
   );
 }
 
 export function subscribeManagedAssignments(
   managerUid: string,
   isBootstrapAdmin: boolean,
-  onData: (items: MissionAssignment[]) => void
+  onData: (items: MissionAssignment[]) => void,
+  onError?: (error: unknown) => void
 ): () => void {
   const path = 'missionAssignments';
   const q = isBootstrapAdmin
@@ -472,14 +477,18 @@ export function subscribeManagedAssignments(
         .sort((a, b) => (b.updatedAt?.toMillis?.() || 0) - (a.updatedAt?.toMillis?.() || 0));
       onData(list);
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => {
+      logFirestoreError(error, OperationType.LIST, path);
+      onError?.(error);
+    }
   );
 }
 
 export function subscribeManagedMissions(
   managerUid: string,
   isBootstrapAdmin: boolean,
-  onData: (items: Mission[]) => void
+  onData: (items: Mission[]) => void,
+  onError?: (error: unknown) => void
 ): () => void {
   const path = 'missions';
   const q = isBootstrapAdmin
@@ -493,13 +502,17 @@ export function subscribeManagedMissions(
         .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
       onData(list);
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => {
+      logFirestoreError(error, OperationType.LIST, path);
+      onError?.(error);
+    }
   );
 }
 
 export function subscribeEmployeeMissions(
   employeeUid: string,
-  onData: (items: Mission[]) => void
+  onData: (items: Mission[]) => void,
+  onError?: (error: unknown) => void
 ): () => void {
   const path = 'missions';
   const q = query(collection(db, path), where('assignedEmployeeIds', 'array-contains', employeeUid));
@@ -511,7 +524,10 @@ export function subscribeEmployeeMissions(
         .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
       onData(list);
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => {
+      logFirestoreError(error, OperationType.LIST, path);
+      onError?.(error);
+    }
   );
 }
 

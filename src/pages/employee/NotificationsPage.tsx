@@ -15,7 +15,7 @@ import type { AppNotification } from '../../types';
 import { formatTimestampFR } from '../../utils/dateUtils';
 
 export function NotificationsPage() {
-  const { firebaseUser, profile } = useAuth();
+  const { emailVerified, tokenReady, profile } = useAuth();
   const { notifications, unreadCount, dataReady } = useWorkspace();
   const { showToast } = useToast();
   const navigate = useNavigate();
@@ -25,7 +25,7 @@ export function NotificationsPage() {
   const [pushLoading, setPushLoading] = useState(false);
 
   useEffect(() => {
-    if (!firebaseUser?.emailVerified || !profile || profile.accountStatus !== 'active') return;
+    if (!emailVerified || !tokenReady || !profile || profile.accountStatus !== 'active') return;
     let cancelled = false;
     getDevicePushStatus(profile.uid)
       .then((token) => {
@@ -35,7 +35,7 @@ export function NotificationsPage() {
     return () => {
       cancelled = true;
     };
-  }, [firebaseUser?.emailVerified, profile?.uid, profile?.accountStatus]);
+  }, [emailVerified, tokenReady, profile?.uid, profile?.accountStatus]);
 
   const filtered = useMemo(
     () => (filter === 'unread' ? notifications.filter((n) => !n.readAt) : notifications),

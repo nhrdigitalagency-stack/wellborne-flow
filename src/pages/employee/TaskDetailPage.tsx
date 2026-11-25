@@ -71,17 +71,29 @@ export function TaskDetailPage() {
   const [editPriority, setEditPriority] = useState<TaskPriority>('normal');
 
   useEffect(() => {
-    if (!taskId) return;
-    const unsub = subscribeTaskById(taskId, (t) => {
-      setTask(t);
-      if (t) {
-        setManualProgress(t.progress);
-        setEditDueAt(t.dueAt);
-        setEditPlannedDate(t.plannedDate);
-        setEditPriority(t.priority);
-      }
+    if (!taskId) {
+      setTask(null);
       setLoading(false);
-    });
+      return;
+    }
+    setLoading(true);
+    const unsub = subscribeTaskById(
+      taskId,
+      (t) => {
+        setTask(t);
+        if (t) {
+          setManualProgress(t.progress);
+          setEditDueAt(t.dueAt);
+          setEditPlannedDate(t.plannedDate);
+          setEditPriority(t.priority);
+        }
+        setLoading(false);
+      },
+      () => {
+        setTask(null);
+        setLoading(false);
+      }
+    );
     return () => unsub();
   }, [taskId]);
 

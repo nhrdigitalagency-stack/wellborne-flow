@@ -11,7 +11,7 @@ import {
 } from 'firebase/firestore';
 import type { AuditLog } from '../../types';
 import { sanitizeText } from '../../utils/taskUtils';
-import { db, handleFirestoreError, OperationType } from '../firebase/config';
+import { db, logFirestoreError, OperationType } from '../firebase/config';
 
 export interface LogAuditInput {
   actorUid: string;
@@ -47,7 +47,8 @@ export async function recordAuditLog(input: LogAuditInput): Promise<void> {
 export function subscribeAuditLogs(
   actorUid: string,
   isBootstrapAdmin: boolean,
-  onData: (logs: AuditLog[]) => void
+  onData: (logs: AuditLog[]) => void,
+  onError?: (error: unknown) => void
 ): () => void {
   const path = 'auditLogs';
   // Requête mono-champ pour éviter toute dépendance à un index composite
@@ -64,6 +65,9 @@ export function subscribeAuditLogs(
         .slice(0, isBootstrapAdmin ? 100 : 60);
       onData(logs);
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => {
+      logFirestoreError(error, OperationType.LIST, path);
+      onError?.(error);
+    }
   );
 }

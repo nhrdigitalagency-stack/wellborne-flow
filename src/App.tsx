@@ -38,7 +38,7 @@ import { ValidationsPage } from './pages/manager/ValidationsPage';
 import { getDefaultRouteForRole, ProtectedRoute } from './routes/ProtectedRoute';
 
 function HomeRedirect() {
-  const { firebaseUser, profile, loading } = useAuth();
+  const { firebaseUser, emailVerified, profile, loading } = useAuth();
   if (loading) {
     return (
       <div className="min-h-screen bg-[#F4F6FA] dark:bg-[#0B1320] flex items-center justify-center">
@@ -49,7 +49,7 @@ function HomeRedirect() {
     );
   }
   if (!firebaseUser) return <Navigate to="/connexion" replace />;
-  if (!firebaseUser.emailVerified) return <Navigate to="/verification-email" replace />;
+  if (!emailVerified) return <Navigate to="/verification-email" replace />;
   if (!profile || profile.accountStatus !== 'active') {
     return <Navigate to="/compte-en-attente" replace />;
   }

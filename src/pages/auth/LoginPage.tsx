@@ -11,7 +11,7 @@ import {
 import { AuthShell } from './AuthShell';
 
 export function LoginPage() {
-  const { firebaseUser, profile, loading } = useAuth();
+  const { firebaseUser, emailVerified, profile, loading } = useAuth();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState('');
@@ -23,7 +23,7 @@ export function LoginPage() {
 
   useEffect(() => {
     if (loading || !firebaseUser) return;
-    if (!firebaseUser.emailVerified) {
+    if (!emailVerified) {
       navigate('/verification-email', { replace: true });
       return;
     }
@@ -34,7 +34,7 @@ export function LoginPage() {
         navigate(getDefaultRouteForRole(profile.role), { replace: true });
       }
     }
-  }, [firebaseUser, profile, loading, navigate]);
+  }, [firebaseUser, emailVerified, profile, loading, navigate]);
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();

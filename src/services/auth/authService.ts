@@ -39,6 +39,7 @@ import {
   db,
   googleProvider,
   handleFirestoreError,
+  logFirestoreError,
   OperationType,
 } from '../firebase/config';
 import { createNotification } from '../notifications/notificationService';
@@ -515,7 +516,10 @@ export function subscribeOrganizationSettings(
   );
 }
 
-export function subscribeTeamDirectory(onData: (users: UserPublic[]) => void): () => void {
+export function subscribeTeamDirectory(
+  onData: (users: UserPublic[]) => void,
+  onError?: (error: unknown) => void
+): () => void {
   const path = 'usersPublic';
   const q = query(collection(db, path), where('workspaceVisibility', '==', 'company'));
   return onSnapshot(
@@ -526,6 +530,9 @@ export function subscribeTeamDirectory(onData: (users: UserPublic[]) => void): (
         .sort((a, b) => `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`, 'fr'));
       onData(list);
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => {
+      logFirestoreError(error, OperationType.LIST, path);
+      onError?.(error);
+    }
   );
 }

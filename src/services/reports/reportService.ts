@@ -10,7 +10,7 @@ import {
 import type { ActivityReport, ReportTotals, UserPrivate } from '../../types';
 import { sanitizeText } from '../../utils/taskUtils';
 import { recordAuditLog } from '../audit/auditService';
-import { db, handleFirestoreError, OperationType } from '../firebase/config';
+import { db, handleFirestoreError, logFirestoreError, OperationType } from '../firebase/config';
 
 export async function saveReportSnapshot(
   actor: UserPrivate,
@@ -67,7 +67,8 @@ export function subscribeSavedReports(
   uid: string,
   isBootstrapAdmin: boolean,
   isManager: boolean,
-  onData: (reports: ActivityReport[]) => void
+  onData: (reports: ActivityReport[]) => void,
+  onError?: (error: unknown) => void
 ): () => void {
   const path = 'reports';
   const q = isBootstrapAdmin
@@ -84,6 +85,9 @@ export function subscribeSavedReports(
         .sort((a, b) => (b.generatedAt?.toMillis?.() || 0) - (a.generatedAt?.toMillis?.() || 0));
       onData(list);
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => {
+      logFirestoreError(error, OperationType.LIST, path);
+      onError?.(error);
+    }
   );
 }

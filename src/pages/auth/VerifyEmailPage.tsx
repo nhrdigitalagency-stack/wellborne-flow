@@ -34,10 +34,11 @@ export function VerifyEmailPage() {
 
   const handleCheck = async () => {
     setError(null);
+    setMessage(null);
     setChecking(true);
     try {
-      await refreshAuthUser();
-      if (firebaseUser?.emailVerified) {
+      const verified = await refreshAuthUser();
+      if (verified) {
         if (profile?.accountStatus === 'active') {
           navigate(getDefaultRouteForRole(profile.role), { replace: true });
         } else {

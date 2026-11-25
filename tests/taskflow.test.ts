@@ -24,6 +24,16 @@ import {
   escapeCsvCell,
   sanitizeText,
 } from '../src/utils/taskUtils';
+import {
+  createDefaultDashboardConfig,
+  createPresetDashboardConfig,
+  EMPLOYEE_WIDGET_CATALOG,
+  moveWidgetByDelta,
+  normalizeDashboardConfig,
+  selectDailyPriorityTasks,
+  setWidgetSpan,
+  toggleWidgetVisibility,
+} from '../src/utils/dashboardWidgets';
 
 let passed = 0;
 let failed = 0;
@@ -617,6 +627,104 @@ runTest('Génération CSV des rapports de performance (complet + tableaux plats 
   );
   assert.equal(flatEmployees.filename, 'wellborne-flow-collaborateurs-2026-11-16-2026-11-22.csv');
   assert.match(flatEmployees.content, /"Alice Ndongo";"Finance";"4";"3";"2"/);
+});
+
+// 8. Widgets personnalisables du tableau de bord employé
+runTest('Normalisation, réorganisation, largeur et préréglages des widgets employé', () => {
+  const def = createDefaultDashboardConfig();
+  assert.equal(def.widgets.length, EMPLOYEE_WIDGET_CATALOG.length);
+  assert.equal(def.widgets.find((w) => w.id === 'priority_summary')?.visible, true);
+  assert.equal(def.widgets.find((w) => w.id === 'quick_shortcuts')?.visible, true);
+
+  // Déplacement + visibilité + largeur
+  const moved = moveWidgetByDelta(def.widgets, 'quick_shortcuts', -1);
+  assert.equal(moved[1].id, 'quick_shortcuts');
+
+  const toggled = toggleWidgetVisibility(moved, 'recent_activity');
+  assert.equal(toggled.find((w) => w.id === 'recent_activity')?.visible, false);
+
+  const resized = setWidgetSpan(toggled, 'priority_summary', 'full');
+  assert.equal(resized.find((w) => w.id === 'priority_summary')?.span, 'full');
+  // kpis n'est pas redimensionnable -> reste 'full'
+  const kpiUnchanged = setWidgetSpan(resized, 'kpis', 'compact');
+  assert.equal(kpiUnchanged.find((w) => w.id === 'kpis')?.span, 'full');
+
+  // Normalisation défensive : routes externes rejetées, widgets manquants restaurés
+  const normalized = normalizeDashboardConfig({
+    version: 1,
+    widgets: [{ id: 'quick_shortcuts', visible: true, span: 'full' }],
+    enabledShortcuts: ['create_task', 'unknown_id'],
+    customShortcuts: [
+      { id: 'c1', label: 'Urgences', to: '/mes-taches?priorite=urgent' },
+      { id: 'c2', label: 'Malveillant', to: 'https://evil.example.com' },
+    ],
+    prioritySummaryLimit: 8,
+  });
+  assert.equal(normalized.widgets.length, EMPLOYEE_WIDGET_CATALOG.length);
+  assert.equal(normalized.widgets[0].id, 'quick_shortcuts');
+  assert.deepEqual(normalized.enabledShortcuts, ['create_task']);
+  assert.equal(normalized.customShortcuts.length, 1);
+  assert.equal(normalized.customShortcuts[0].label, 'Urgences');
+  assert.equal(normalized.prioritySummaryLimit, 8);
+
+  // Préréglage Focus quotidien préserve les raccourcis personnalisés
+  const focus = createPresetDashboardConfig('daily_focus', normalized);
+  assert.equal(focus.widgets[0].id, 'priority_summary');
+  assert.equal(focus.customShortcuts.length, 1);
+});
+
+runTest('Classement du résumé des tâches prioritaires du jour (retards puis priorité)', () => {
+  const baseTask = (overrides: Partial<Task>): Task => ({
+    id: 't',
+    title: 'Tâche',
+    description: '',
+    ownerId: 'u1',
+    ownerName: 'Alice',
+    createdBy: 'u1',
+    source: 'personal',
+    missionId: null,
+    assignmentId: null,
+    publicationStatus: 'published',
+    status: 'todo',
+    priority: 'normal',
+    category: 'Opérations',
+    startAt: '2026-11-20',
+    plannedDate: '2026-11-25',
+    dueAt: '2026-11-25',
+    progress: 0,
+    progressMode: 'manual',
+    subtasksCount: 0,
+    completedSubtasksCount: 0,
+    commentsCount: 0,
+    completedAt: null,
+    deletedAt: null,
+    createdAt: fakeTimestamp('2026-11-20'),
+    updatedAt: fakeTimestamp('2026-11-20'),
+    ...overrides,
+  });
+
+  const tasks: Task[] = [
+    baseTask({ id: 'normal_today', title: 'Normale du jour', priority: 'normal', dueAt: '2026-11-25' }),
+    baseTask({ id: 'urgent_today', title: 'Urgente du jour', priority: 'urgent', dueAt: '2026-11-25' }),
+    baseTask({ id: 'overdue_high', title: 'Élevée en retard', priority: 'high', dueAt: '2026-11-22' }),
+    baseTask({ id: 'done_urgent', title: 'Déjà terminée', priority: 'urgent', status: 'completed', dueAt: '2026-11-22' }),
+    baseTask({ id: 'low_future', title: 'Faible future', priority: 'low', plannedDate: '2026-11-29', dueAt: '2026-11-30' }),
+  ];
+
+  const allSummary = selectDailyPriorityTasks(tasks, '2026-11-25', 'all', 5);
+  assert.equal(allSummary.overdueCount, 1);
+  assert.equal(allSummary.highUrgentTodayCount, 2);
+  assert.equal(allSummary.dueTodayCount, 2);
+  assert.deepEqual(
+    allSummary.items.map((t) => t.id),
+    ['overdue_high', 'urgent_today', 'normal_today']
+  );
+
+  const overdueOnly = selectDailyPriorityTasks(tasks, '2026-11-25', 'overdue', 5);
+  assert.deepEqual(
+    overdueOnly.items.map((t) => t.id),
+    ['overdue_high']
+  );
 });
 
 console.log(`\nRésultat : ${passed} réussi(s), ${failed} échoué(s)\n`);

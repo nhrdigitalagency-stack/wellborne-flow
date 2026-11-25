@@ -13,7 +13,7 @@ import {
 import type { AppNotification, DeviceToken, NotificationType, Task } from '../../types';
 import { getTodayDoualaISO, isTaskOverdue } from '../../utils/dateUtils';
 import { sanitizeText } from '../../utils/taskUtils';
-import { auth, db, handleFirestoreError, OperationType } from '../firebase/config';
+import { auth, db, handleFirestoreError, logFirestoreError, OperationType } from '../firebase/config';
 
 export interface CreateNotificationInput {
   recipientId: string;
@@ -45,7 +45,8 @@ export async function createNotification(input: CreateNotificationInput): Promis
 
 export function subscribeUserNotifications(
   userId: string,
-  onData: (items: AppNotification[]) => void
+  onData: (items: AppNotification[]) => void,
+  onError?: (error: unknown) => void
 ): () => void {
   const path = 'notifications';
   // Requête mono-champ (aucun index composite requis) + tri client-side par date décroissante
@@ -63,7 +64,10 @@ export function subscribeUserNotifications(
         .slice(0, 80);
       onData(items);
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => {
+      logFirestoreError(error, OperationType.LIST, path);
+      onError?.(error);
+    }
   );
 }
 
