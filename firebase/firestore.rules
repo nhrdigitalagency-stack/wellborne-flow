@@ -1,0 +1,896 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 0: Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // PHASE 3: GLOBAL PRIMITIVES & IDENTITY HELPERS
+    // =========================================================================
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isBootstrapAdmin() {
+      return isVerified() && request.auth.token.email is string && request.auth.token.email.lower() == 'nhrdigitalagency@gmail.com';
+    }
+
+    function userExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isActiveUser() {
+      return isBootstrapAdmin() || (isVerified() && userExists() && userData().accountStatus == 'active');
+    }
+
+    function isAdmin() {
+      return isBootstrapAdmin() || (isVerified() && userExists() && userData().role == 'admin' && userData().accountStatus == 'active');
+    }
+
+    function isManager() {
+      return isAdmin() || (isVerified() && userExists() && userData().role == 'manager' && userData().accountStatus == 'active');
+    }
+
+    function isValidOptionalString(data, field, maxLen) {
+      return !(field in data) || data[field] == null || (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isValidOptionalTimestamp(data, field) {
+      return !(field in data) || data[field] == null || data[field] is timestamp;
+    }
+
+    // =========================================================================
+    // VALIDATION BLUEPRINTS (PILLAR 2: ANTI-UPDATE-GAP)
+    // =========================================================================
+    function isValidUserPrivate(data) {
+      return data.keys().hasAll([
+        'uid', 'firstName', 'lastName', 'email', 'role', 'accountStatus',
+        'emailVerified', 'timezone', 'notificationPreferences', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'uid', 'firstName', 'lastName', 'email', 'role', 'position', 'department',
+        'accountStatus', 'emailVerified', 'photoURL', 'timezone',
+        'notificationPreferences', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.uid) &&
+      data.firstName is string && data.firstName.size() >= 1 && data.firstName.size() <= 80 &&
+      data.lastName is string && data.lastName.size() >= 1 && data.lastName.size() <= 80 &&
+      data.email is string && data.email.size() >= 3 && data.email.size() <= 254 &&
+      data.role in ['employee', 'manager', 'admin'] &&
+      isValidOptionalString(data, 'position', 120) &&
+      isValidOptionalString(data, 'department', 120) &&
+      data.accountStatus in ['pending', 'active', 'suspended'] &&
+      data.emailVerified is bool &&
+      isValidOptionalString(data, 'photoURL', 500) &&
+      data.timezone is string && data.timezone.size() >= 1 && data.timezone.size() <= 64 &&
+      data.notificationPreferences is map &&
+      data.notificationPreferences.keys().hasOnly(['inApp', 'dailyReminder', 'webPush', 'missionEvents', 'commentEvents']) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidUserPublic(data) {
+      return data.keys().hasAll([
+        'uid', 'firstName', 'lastName', 'role', 'accountStatus', 'workspaceVisibility', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'uid', 'firstName', 'lastName', 'role', 'position', 'department',
+        'accountStatus', 'photoURL', 'workspaceVisibility', 'updatedAt'
+      ]) &&
+      isValidId(data.uid) &&
+      data.firstName is string && data.firstName.size() >= 1 && data.firstName.size() <= 80 &&
+      data.lastName is string && data.lastName.size() >= 1 && data.lastName.size() <= 80 &&
+      data.role in ['employee', 'manager', 'admin'] &&
+      isValidOptionalString(data, 'position', 120) &&
+      isValidOptionalString(data, 'department', 120) &&
+      data.accountStatus in ['pending', 'active', 'suspended'] &&
+      isValidOptionalString(data, 'photoURL', 500) &&
+      data.workspaceVisibility == 'company' &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidOrganizationSettings(data) {
+      return data.keys().hasAll([
+        'companyName', 'timezone', 'reminderTime', 'requireAdminActivation',
+        'requirePersonalTaskApproval', 'weeklyReportDay', 'weeklyReportTime', 'updatedBy', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'companyName', 'timezone', 'reminderTime', 'requireAdminActivation',
+        'requirePersonalTaskApproval', 'weeklyReportDay', 'weeklyReportTime', 'updatedBy', 'updatedAt'
+      ]) &&
+      data.companyName is string && data.companyName.size() >= 1 && data.companyName.size() <= 120 &&
+      data.timezone is string && data.timezone.size() >= 1 && data.timezone.size() <= 64 &&
+      data.reminderTime is string && data.reminderTime.size() == 5 && data.reminderTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') &&
+      data.requireAdminActivation is bool &&
+      data.requirePersonalTaskApproval is bool &&
+      data.weeklyReportDay in ['monday', 'sunday'] &&
+      data.weeklyReportTime is string && data.weeklyReportTime.size() == 5 && data.weeklyReportTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') &&
+      isValidId(data.updatedBy) &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidTask(data) {
+      return data.keys().hasAll([
+        'title', 'description', 'createdBy', 'creatorName', 'ownerId', 'ownerName',
+        'source', 'startAt', 'plannedDate', 'dueAt', 'priority', 'category',
+        'status', 'publicationStatus', 'progressMode', 'progress',
+        'subtaskCount', 'completedSubtaskCount', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'title', 'description', 'createdBy', 'creatorName', 'ownerId', 'ownerName',
+        'source', 'missionId', 'assignmentId', 'startAt', 'plannedDate', 'dueAt',
+        'priority', 'category', 'labelIds', 'status', 'publicationStatus', 'progressMode', 'progress',
+        'subtaskCount', 'completedSubtaskCount', 'completedAt', 'deletedAt', 'createdAt', 'updatedAt'
+      ]) &&
+      data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+      data.description is string && data.description.size() <= 4000 &&
+      isValidId(data.createdBy) &&
+      data.creatorName is string && data.creatorName.size() >= 1 && data.creatorName.size() <= 160 &&
+      isValidId(data.ownerId) &&
+      data.ownerName is string && data.ownerName.size() >= 1 && data.ownerName.size() <= 160 &&
+      data.source in ['personal', 'mission'] &&
+      isValidOptionalString(data, 'missionId', 128) &&
+      isValidOptionalString(data, 'assignmentId', 256) &&
+      data.startAt is string && data.startAt.size() >= 8 && data.startAt.size() <= 40 &&
+      data.plannedDate is string && data.plannedDate.size() >= 8 && data.plannedDate.size() <= 40 &&
+      data.dueAt is string && data.dueAt.size() >= 8 && data.dueAt.size() <= 40 &&
+      data.priority in ['low', 'normal', 'high', 'urgent'] &&
+      data.category is string && data.category.size() >= 1 && data.category.size() <= 80 &&
+      (!('labelIds' in data) || (data.labelIds is list && data.labelIds.size() <= 8 && (data.labelIds.size() == 0 || data.labelIds[0] is string))) &&
+      data.status in ['todo', 'in_progress', 'blocked', 'submitted', 'changes_requested', 'completed', 'cancelled'] &&
+      data.publicationStatus in ['draft', 'published'] &&
+      data.progressMode in ['auto', 'manual'] &&
+      data.progress is number && data.progress >= 0 && data.progress <= 100 &&
+      data.subtaskCount is number && data.subtaskCount >= 0 && data.subtaskCount <= 200 &&
+      data.completedSubtaskCount is number && data.completedSubtaskCount >= 0 && data.completedSubtaskCount <= data.subtaskCount &&
+      isValidOptionalTimestamp(data, 'completedAt') &&
+      isValidOptionalTimestamp(data, 'deletedAt') &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidSubtask(data) {
+      return data.keys().hasAll([
+        'title', 'order', 'completed', 'ownerId', 'publicationStatus', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'title', 'description', 'order', 'completed', 'completedBy',
+        'completedAt', 'ownerId', 'publicationStatus', 'createdAt'
+      ]) &&
+      data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+      isValidOptionalString(data, 'description', 1000) &&
+      data.order is number && data.order >= 0 && data.order <= 500 &&
+      data.completed is bool &&
+      isValidOptionalString(data, 'completedBy', 128) &&
+      isValidOptionalTimestamp(data, 'completedAt') &&
+      isValidId(data.ownerId) &&
+      data.publicationStatus in ['draft', 'published'] &&
+      data.createdAt is timestamp;
+    }
+
+    function isValidMission(data) {
+      return data.keys().hasAll([
+        'title', 'description', 'objectives', 'instructions', 'createdBy', 'creatorName',
+        'startAt', 'dueAt', 'priority', 'status', 'category', 'checklistTemplate',
+        'assignedEmployeeIds', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'title', 'description', 'objectives', 'instructions', 'createdBy', 'creatorName',
+        'startAt', 'dueAt', 'priority', 'status', 'category', 'checklistTemplate',
+        'assignedEmployeeIds', 'createdAt', 'updatedAt'
+      ]) &&
+      data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+      data.description is string && data.description.size() <= 4000 &&
+      data.objectives is string && data.objectives.size() <= 2000 &&
+      data.instructions is string && data.instructions.size() <= 4000 &&
+      isValidId(data.createdBy) &&
+      data.creatorName is string && data.creatorName.size() >= 1 && data.creatorName.size() <= 160 &&
+      data.startAt is string && data.startAt.size() >= 8 && data.startAt.size() <= 40 &&
+      data.dueAt is string && data.dueAt.size() >= 8 && data.dueAt.size() <= 40 &&
+      data.priority in ['low', 'normal', 'high', 'urgent'] &&
+      data.status in ['draft', 'published', 'closed', 'cancelled'] &&
+      data.category is string && data.category.size() >= 1 && data.category.size() <= 80 &&
+      data.checklistTemplate is list && data.checklistTemplate.size() <= 30 &&
+      (data.checklistTemplate.size() == 0 || data.checklistTemplate[0] is string) &&
+      data.assignedEmployeeIds is list && data.assignedEmployeeIds.size() <= 50 &&
+      (data.assignedEmployeeIds.size() == 0 || data.assignedEmployeeIds[0] is string) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidMissionAssignment(data) {
+      return data.keys().hasAll([
+        'missionId', 'missionTitle', 'employeeId', 'employeeName', 'assignedBy',
+        'assignedByName', 'acceptanceStatus', 'workStatus', 'progress',
+        'priority', 'startAt', 'dueAt', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'missionId', 'missionTitle', 'employeeId', 'employeeName', 'assignedBy',
+        'assignedByName', 'acceptanceStatus', 'workStatus', 'taskId', 'progress',
+        'priority', 'startAt', 'dueAt', 'acceptedAt', 'rejectedAt', 'rejectionReason',
+        'submittedAt', 'submissionNote', 'reviewedAt', 'reviewComment', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.missionId) &&
+      data.missionTitle is string && data.missionTitle.size() >= 1 && data.missionTitle.size() <= 200 &&
+      isValidId(data.employeeId) &&
+      data.employeeName is string && data.employeeName.size() >= 1 && data.employeeName.size() <= 160 &&
+      isValidId(data.assignedBy) &&
+      data.assignedByName is string && data.assignedByName.size() >= 1 && data.assignedByName.size() <= 160 &&
+      data.acceptanceStatus in ['pending', 'accepted', 'rejected'] &&
+      data.workStatus in ['not_started', 'in_progress', 'blocked', 'submitted', 'changes_requested', 'approved'] &&
+      isValidOptionalString(data, 'taskId', 128) &&
+      data.progress is number && data.progress >= 0 && data.progress <= 100 &&
+      data.priority in ['low', 'normal', 'high', 'urgent'] &&
+      data.startAt is string && data.startAt.size() >= 8 && data.startAt.size() <= 40 &&
+      data.dueAt is string && data.dueAt.size() >= 8 && data.dueAt.size() <= 40 &&
+      isValidOptionalTimestamp(data, 'acceptedAt') &&
+      isValidOptionalTimestamp(data, 'rejectedAt') &&
+      isValidOptionalString(data, 'rejectionReason', 1000) &&
+      isValidOptionalTimestamp(data, 'submittedAt') &&
+      isValidOptionalString(data, 'submissionNote', 2000) &&
+      isValidOptionalTimestamp(data, 'reviewedAt') &&
+      isValidOptionalString(data, 'reviewComment', 2000) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll([
+        'recipientId', 'type', 'title', 'message', 'entityType', 'entityId', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'recipientId', 'type', 'title', 'message', 'entityType', 'entityId', 'readAt', 'createdAt'
+      ]) &&
+      isValidId(data.recipientId) &&
+      data.type in [
+        'mission_assigned', 'mission_accepted', 'mission_rejected',
+        'task_due_soon', 'task_overdue', 'comment_added',
+        'work_submitted', 'work_approved', 'changes_requested',
+        'daily_reminder', 'account_activated'
+      ] &&
+      data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+      data.message is string && data.message.size() >= 1 && data.message.size() <= 2000 &&
+      data.entityType in ['task', 'mission', 'assignment', 'report', 'account'] &&
+      data.entityId is string && data.entityId.size() <= 128 &&
+      isValidOptionalTimestamp(data, 'readAt') &&
+      data.createdAt is timestamp;
+    }
+
+    function isValidComment(data) {
+      return data.keys().hasAll([
+        'authorId', 'authorName', 'content', 'visibility', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'taskId', 'missionId', 'authorId', 'authorName', 'content', 'visibility', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidOptionalString(data, 'taskId', 128) &&
+      isValidOptionalString(data, 'missionId', 128) &&
+      isValidId(data.authorId) &&
+      data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 160 &&
+      data.content is string && data.content.size() >= 1 && data.content.size() <= 2000 &&
+      data.visibility in ['company', 'private'] &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidDeviceToken(data) {
+      return data.keys().hasAll([
+        'userId', 'installationId', 'platform', 'enabled', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'userId', 'installationId', 'platform', 'token', 'enabled', 'updatedAt'
+      ]) &&
+      isValidId(data.userId) &&
+      isValidId(data.installationId) &&
+      data.platform is string && data.platform.size() >= 1 && data.platform.size() <= 64 &&
+      isValidOptionalString(data, 'token', 512) &&
+      data.enabled is bool &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidReport(data) {
+      return data.keys().hasAll([
+        'type', 'periodKind', 'periodStart', 'periodEnd', 'totals', 'completionRate', 'generatedBy', 'generatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'type', 'periodKind', 'employeeId', 'employeeName', 'periodStart', 'periodEnd', 'totals', 'completionRate', 'generatedBy', 'generatedAt'
+      ]) &&
+      data.type in ['individual', 'collective'] &&
+      data.periodKind in ['weekly', 'monthly', 'custom'] &&
+      isValidOptionalString(data, 'employeeId', 128) &&
+      isValidOptionalString(data, 'employeeName', 160) &&
+      data.periodStart is string && data.periodStart.size() >= 8 && data.periodStart.size() <= 40 &&
+      data.periodEnd is string && data.periodEnd.size() >= 8 && data.periodEnd.size() <= 40 &&
+      data.totals is map &&
+      data.completionRate is number && data.completionRate >= 0 && data.completionRate <= 100 &&
+      isValidId(data.generatedBy) &&
+      data.generatedAt is timestamp;
+    }
+
+    function isValidReminderDelivery(data) {
+      return data.keys().hasAll([
+        'userId', 'taskId', 'localDate', 'reminderType', 'sentAt'
+      ]) &&
+      data.keys().hasOnly([
+        'userId', 'taskId', 'localDate', 'reminderType', 'sentAt'
+      ]) &&
+      isValidId(data.userId) &&
+      isValidId(data.taskId) &&
+      data.localDate is string && data.localDate.size() == 10 && data.localDate.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+      data.reminderType in ['daily_20h', 'manual_admin'] &&
+      data.sentAt is timestamp;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll([
+        'actorUid', 'actorName', 'action', 'entityType', 'entityId', 'timestamp'
+      ]) &&
+      data.keys().hasOnly([
+        'actorUid', 'actorName', 'action', 'entityType', 'entityId', 'timestamp', 'metadata'
+      ]) &&
+      isValidId(data.actorUid) &&
+      data.actorName is string && data.actorName.size() >= 1 && data.actorName.size() <= 160 &&
+      data.action is string && data.action.size() >= 1 && data.action.size() <= 80 &&
+      data.entityType in ['user', 'task', 'subtask', 'mission', 'assignment', 'report', 'settings', 'reminder', 'label'] &&
+      data.entityId is string && data.entityId.size() >= 1 && data.entityId.size() <= 128 &&
+      data.timestamp is timestamp &&
+      (!('metadata' in data) || data.metadata is map);
+    }
+
+    function isValidTaskLabel(data) {
+      return data.keys().hasAll([
+        'name', 'group', 'color', 'workspaceVisibility', 'createdBy', 'creatorName', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'name', 'group', 'color', 'workspaceVisibility', 'createdBy', 'creatorName', 'createdAt', 'updatedAt'
+      ]) &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 40 &&
+      data.group in ['priority', 'department', 'project_type'] &&
+      data.color in ['blue', 'navy', 'green', 'amber', 'red', 'teal', 'slate'] &&
+      data.workspaceVisibility == 'company' &&
+      isValidId(data.createdBy) &&
+      data.creatorName is string && data.creatorName.size() >= 1 && data.creatorName.size() <= 160 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // =========================================================================
+    // 1. USERS (PRIVATE PII — STRICT OWNER OR ADMIN ONLY)
+    // =========================================================================
+    match /users/{uid} {
+      allow get: if isSignedIn() && isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isBootstrapAdmin();
+
+      allow create: if isSignedIn() && isValidId(uid) && isOwner(uid) &&
+        isValidUserPrivate(incoming()) &&
+        incoming().uid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          (isBootstrapAdmin() && incoming().role == 'admin' && incoming().accountStatus == 'active') ||
+          (!isBootstrapAdmin() && incoming().role == 'employee' && incoming().accountStatus in ['pending', 'active'])
+        );
+
+      allow update: if isSignedIn() && isValidId(uid) && isValidUserPrivate(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          // Action 1: Admin user management (role, status, department, position)
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly([
+            'role', 'accountStatus', 'position', 'department', 'firstName', 'lastName', 'updatedAt'
+          ])) ||
+          // Action 2: Self profile update (strictly forbids role & accountStatus changes)
+          (isOwner(uid) && isVerified() &&
+            incoming().role == existing().role &&
+            incoming().accountStatus == existing().accountStatus &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'firstName', 'lastName', 'position', 'department', 'photoURL',
+              'timezone', 'notificationPreferences', 'emailVerified', 'updatedAt'
+            ]))
+        );
+
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // 2. USERS PUBLIC (NON-PII COMPANY DIRECTORY)
+    // =========================================================================
+    match /usersPublic/{uid} {
+      allow get: if isSignedIn() && isValidId(uid) && (isOwner(uid) || (isVerified() && isActiveUser()));
+      allow list: if isVerified() && resource.data.workspaceVisibility == 'company';
+
+      allow create: if isSignedIn() && isValidId(uid) && isOwner(uid) &&
+        isValidUserPublic(incoming()) &&
+        incoming().uid == request.auth.uid &&
+        incoming().updatedAt == request.time &&
+        (
+          (isBootstrapAdmin() && incoming().role == 'admin' && incoming().accountStatus == 'active') ||
+          (!isBootstrapAdmin() && incoming().role == 'employee' && incoming().accountStatus in ['pending', 'active'])
+        );
+
+      allow update: if isSignedIn() && isValidId(uid) && isValidUserPublic(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().updatedAt == request.time &&
+        (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly([
+            'role', 'accountStatus', 'position', 'department', 'firstName', 'lastName', 'photoURL', 'updatedAt'
+          ])) ||
+          (isOwner(uid) && isVerified() &&
+            incoming().role == existing().role &&
+            incoming().accountStatus == existing().accountStatus &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'firstName', 'lastName', 'position', 'department', 'photoURL', 'updatedAt'
+            ]))
+        );
+
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // 3. ORGANIZATION SETTINGS
+    // =========================================================================
+    match /organizationSettings/{settingId} {
+      allow get: if isSignedIn() && isValidId(settingId) && settingId == 'global';
+      allow list: if false;
+
+      allow create: if isVerified() && isValidId(settingId) && settingId == 'global' &&
+        isValidOrganizationSettings(incoming()) &&
+        incoming().updatedBy == request.auth.uid &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+
+      allow update: if isVerified() && isValidId(settingId) && settingId == 'global' &&
+        isValidOrganizationSettings(incoming()) &&
+        incoming().updatedBy == request.auth.uid &&
+        incoming().updatedAt == request.time &&
+        isAdmin() &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'companyName', 'timezone', 'reminderTime', 'requireAdminActivation',
+          'requirePersonalTaskApproval', 'weeklyReportDay', 'weeklyReportTime', 'updatedBy', 'updatedAt'
+        ]);
+
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // 4. TASKS & SUBTASKS (MASTER GATE + ANTI-UPDATE-GAP)
+    // =========================================================================
+    match /tasks/{taskId} {
+      allow get: if isVerified() && isValidId(taskId) && isActiveUser() && (
+        resource == null ||
+        existing().ownerId == request.auth.uid ||
+        existing().publicationStatus == 'published' ||
+        isManager()
+      );
+
+      allow list: if isVerified() && (
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.publicationStatus == 'published' ||
+        isBootstrapAdmin()
+      );
+
+      allow create: if isVerified() && isValidId(taskId) && isValidTask(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        incoming().ownerId == request.auth.uid &&
+        isActiveUser() &&
+        (
+          (incoming().source == 'personal' && incoming().createdBy == request.auth.uid) ||
+          (incoming().source == 'mission' &&
+            'missionId' in incoming() && incoming().missionId is string &&
+            'assignmentId' in incoming() && incoming().assignmentId is string &&
+            exists(/databases/$(database)/documents/missions/$(incoming().missionId)) &&
+            exists(/databases/$(database)/documents/missionAssignments/$(incoming().assignmentId)) &&
+            get(/databases/$(database)/documents/missionAssignments/$(incoming().assignmentId)).data.employeeId == request.auth.uid)
+        );
+
+      allow update: if isVerified() && isValidId(taskId) && isValidTask(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().source == existing().source &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        isActiveUser() &&
+        (
+          // Admin override (including terminal state correction)
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly([
+            'title', 'description', 'startAt', 'plannedDate', 'dueAt', 'priority',
+            'category', 'labelIds', 'status', 'publicationStatus', 'progressMode', 'progress',
+            'subtaskCount', 'completedSubtaskCount', 'completedAt', 'deletedAt', 'updatedAt'
+          ])) ||
+          // Manager review of mission task (approve -> completed OR request corrections)
+          (isManager() && existing().source == 'mission' &&
+            !(existing().status in ['completed', 'cancelled']) &&
+            incoming().status in ['completed', 'changes_requested'] &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'progress', 'completedAt', 'updatedAt'
+            ])) ||
+          // Owner editing active personal task
+          (existing().ownerId == request.auth.uid &&
+            existing().source == 'personal' &&
+            !(existing().status in ['completed', 'cancelled']) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'description', 'startAt', 'plannedDate', 'dueAt', 'priority',
+              'category', 'labelIds', 'status', 'publicationStatus', 'progressMode', 'progress',
+              'subtaskCount', 'completedSubtaskCount', 'completedAt', 'deletedAt', 'updatedAt'
+            ])) ||
+          // Owner executing active mission task (CANNOT self-approve to 'completed')
+          (existing().ownerId == request.auth.uid &&
+            existing().source == 'mission' &&
+            !(existing().status in ['completed', 'cancelled']) &&
+            incoming().status in ['todo', 'in_progress', 'blocked', 'submitted', 'changes_requested'] &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'plannedDate', 'labelIds', 'status', 'progressMode', 'progress',
+              'subtaskCount', 'completedSubtaskCount', 'updatedAt'
+            ]))
+        );
+
+      // Soft delete is enforced via deletedAt + cancelled; hard delete reserved to admins for drafts only
+      allow delete: if isVerified() && isValidId(taskId) && isAdmin() && existing().publicationStatus == 'draft';
+
+      match /subtasks/{subtaskId} {
+        allow get: if isVerified() && isValidId(taskId) && isValidId(subtaskId) && isActiveUser() &&
+          exists(/databases/$(database)/documents/tasks/$(taskId)) && (
+            get(/databases/$(database)/documents/tasks/$(taskId)).data.ownerId == request.auth.uid ||
+            get(/databases/$(database)/documents/tasks/$(taskId)).data.publicationStatus == 'published' ||
+            isManager()
+          );
+
+        allow list: if isVerified() && isValidId(taskId) && (
+          resource.data.ownerId == request.auth.uid ||
+          resource.data.publicationStatus == 'published' ||
+          isBootstrapAdmin()
+        );
+
+        allow create: if isVerified() && isValidId(taskId) && isValidId(subtaskId) &&
+          isValidSubtask(incoming()) &&
+          incoming().createdAt == request.time &&
+          isActiveUser() &&
+          exists(/databases/$(database)/documents/tasks/$(taskId)) &&
+          get(/databases/$(database)/documents/tasks/$(taskId)).data.ownerId == request.auth.uid &&
+          incoming().ownerId == request.auth.uid;
+
+        allow update: if isVerified() && isValidId(taskId) && isValidId(subtaskId) &&
+          isValidSubtask(incoming()) &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().ownerId == existing().ownerId &&
+          isActiveUser() &&
+          exists(/databases/$(database)/documents/tasks/$(taskId)) &&
+          (
+            (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'description', 'order', 'completed', 'completedBy', 'completedAt', 'publicationStatus'
+            ])) ||
+            (get(/databases/$(database)/documents/tasks/$(taskId)).data.ownerId == request.auth.uid &&
+              !(get(/databases/$(database)/documents/tasks/$(taskId)).data.status in ['completed', 'cancelled']) &&
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'title', 'description', 'order', 'completed', 'completedBy', 'completedAt', 'publicationStatus'
+              ]))
+          );
+
+        allow delete: if isVerified() && isValidId(taskId) && isValidId(subtaskId) && isActiveUser() &&
+          exists(/databases/$(database)/documents/tasks/$(taskId)) &&
+          (get(/databases/$(database)/documents/tasks/$(taskId)).data.ownerId == request.auth.uid || isAdmin());
+      }
+    }
+
+    // =========================================================================
+    // 5. MISSIONS (MANAGER / ADMIN CREATION; ASSIGNED EMPLOYEES READ-ONLY)
+    // =========================================================================
+    match /missions/{missionId} {
+      allow get: if isVerified() && isValidId(missionId) && isActiveUser() && (
+        resource == null ||
+        isManager() ||
+        request.auth.uid in existing().assignedEmployeeIds
+      );
+
+      allow list: if isVerified() && (
+        resource.data.createdBy == request.auth.uid ||
+        request.auth.uid in resource.data.assignedEmployeeIds ||
+        isBootstrapAdmin()
+      );
+
+      allow create: if isVerified() && isValidId(missionId) && isValidMission(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isManager();
+
+      allow update: if isVerified() && isValidId(missionId) && isValidMission(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        isManager() &&
+        (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly([
+            'title', 'description', 'objectives', 'instructions', 'startAt', 'dueAt',
+            'priority', 'status', 'category', 'checklistTemplate', 'assignedEmployeeIds', 'updatedAt'
+          ])) ||
+          (!(existing().status in ['closed', 'cancelled']) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'description', 'objectives', 'instructions', 'startAt', 'dueAt',
+              'priority', 'status', 'category', 'checklistTemplate', 'assignedEmployeeIds', 'updatedAt'
+            ]))
+        );
+
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // 6. MISSION ASSIGNMENTS (INDEPENDENT PER-EMPLOYEE EXECUTION)
+    // =========================================================================
+    match /missionAssignments/{assignmentId} {
+      allow get: if isVerified() && isValidId(assignmentId) && isActiveUser() && (
+        resource == null ||
+        existing().employeeId == request.auth.uid ||
+        isManager()
+      );
+
+      allow list: if isVerified() && (
+        resource.data.employeeId == request.auth.uid ||
+        resource.data.assignedBy == request.auth.uid ||
+        isBootstrapAdmin()
+      );
+
+      allow create: if isVerified() && isValidId(assignmentId) && isValidMissionAssignment(incoming()) &&
+        incoming().assignedBy == request.auth.uid &&
+        incoming().acceptanceStatus == 'pending' &&
+        incoming().workStatus == 'not_started' &&
+        incoming().progress == 0 &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isManager() &&
+        exists(/databases/$(database)/documents/missions/$(incoming().missionId));
+
+      allow update: if isVerified() && isValidId(assignmentId) && isValidMissionAssignment(incoming()) &&
+        incoming().missionId == existing().missionId &&
+        incoming().employeeId == existing().employeeId &&
+        incoming().assignedBy == existing().assignedBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        isActiveUser() &&
+        (
+          // Action 1: Admin override
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly([
+            'acceptanceStatus', 'workStatus', 'taskId', 'progress', 'reviewComment', 'reviewedAt', 'updatedAt'
+          ])) ||
+          // Action 2: Employee accepts pending mission (creates linked task atomically via transaction)
+          (existing().employeeId == request.auth.uid &&
+            existing().acceptanceStatus == 'pending' &&
+            incoming().acceptanceStatus == 'accepted' &&
+            incoming().workStatus == 'in_progress' &&
+            'taskId' in incoming() && incoming().taskId is string &&
+            existsAfter(/databases/$(database)/documents/tasks/$(incoming().taskId)) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'acceptanceStatus', 'workStatus', 'taskId', 'acceptedAt', 'updatedAt'
+            ])) ||
+          // Action 3: Employee rejects pending mission with mandatory reason
+          (existing().employeeId == request.auth.uid &&
+            existing().acceptanceStatus == 'pending' &&
+            incoming().acceptanceStatus == 'rejected' &&
+            incoming().workStatus == 'not_started' &&
+            'rejectionReason' in incoming() && incoming().rejectionReason is string && incoming().rejectionReason.size() >= 3 &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'acceptanceStatus', 'rejectedAt', 'rejectionReason', 'updatedAt'
+            ])) ||
+          // Action 4: Employee updates progress or submits accepted mission (CANNOT self-approve)
+          (existing().employeeId == request.auth.uid &&
+            existing().acceptanceStatus == 'accepted' &&
+            existing().workStatus != 'approved' &&
+            incoming().acceptanceStatus == 'accepted' &&
+            incoming().workStatus in ['in_progress', 'blocked', 'submitted'] &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'workStatus', 'progress', 'submittedAt', 'submissionNote', 'updatedAt'
+            ])) ||
+          // Action 5: Manager reviews submitted mission (approve or request corrections)
+          (isManager() &&
+            existing().acceptanceStatus == 'accepted' &&
+            existing().workStatus != 'approved' &&
+            incoming().acceptanceStatus == 'accepted' &&
+            incoming().workStatus in ['approved', 'changes_requested'] &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'workStatus', 'progress', 'reviewedAt', 'reviewComment', 'updatedAt'
+            ]))
+        );
+
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // 7. NOTIFICATIONS (IN-APP CENTER)
+    // =========================================================================
+    match /notifications/{notificationId} {
+      allow get: if isVerified() && isValidId(notificationId) && (
+        resource == null || existing().recipientId == request.auth.uid || isAdmin()
+      );
+
+      allow list: if isVerified() && resource.data.recipientId == request.auth.uid;
+
+      allow create: if isVerified() && isValidId(notificationId) && isValidNotification(incoming()) &&
+        incoming().createdAt == request.time &&
+        isActiveUser();
+
+      allow update: if isVerified() && isValidId(notificationId) && isValidNotification(incoming()) &&
+        incoming().recipientId == existing().recipientId &&
+        incoming().createdAt == existing().createdAt &&
+        existing().recipientId == request.auth.uid &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['readAt']);
+
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // 8. COMMENTS (TASKS & MISSIONS)
+    // =========================================================================
+    match /comments/{commentId} {
+      allow get: if isVerified() && isValidId(commentId) && isActiveUser() && (
+        resource == null ||
+        existing().authorId == request.auth.uid ||
+        existing().visibility == 'company' ||
+        isManager()
+      );
+
+      allow list: if isVerified() && (
+        resource.data.authorId == request.auth.uid ||
+        resource.data.visibility == 'company' ||
+        isBootstrapAdmin()
+      );
+
+      allow create: if isVerified() && isValidId(commentId) && isValidComment(incoming()) &&
+        incoming().authorId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isActiveUser();
+
+      allow update: if isVerified() && isValidId(commentId) && isValidComment(incoming()) &&
+        incoming().authorId == existing().authorId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        existing().authorId == request.auth.uid &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['content', 'updatedAt']);
+
+      allow delete: if isVerified() && isValidId(commentId) && (existing().authorId == request.auth.uid || isAdmin());
+    }
+
+    // =========================================================================
+    // 9. DEVICE TOKENS (WEB PUSH REGISTRATION)
+    // =========================================================================
+    match /deviceTokens/{installationId} {
+      allow get: if isVerified() && isValidId(installationId) && (resource == null || existing().userId == request.auth.uid || isAdmin());
+      allow list: if isVerified() && resource.data.userId == request.auth.uid;
+
+      allow create: if isVerified() && isValidId(installationId) && isValidDeviceToken(incoming()) &&
+        incoming().userId == request.auth.uid &&
+        incoming().installationId == installationId &&
+        incoming().updatedAt == request.time &&
+        isActiveUser();
+
+      allow update: if isVerified() && isValidId(installationId) && isValidDeviceToken(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().installationId == existing().installationId &&
+        incoming().updatedAt == request.time &&
+        existing().userId == request.auth.uid &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['platform', 'token', 'enabled', 'updatedAt']);
+
+      allow delete: if isVerified() && isValidId(installationId) && existing().userId == request.auth.uid;
+    }
+
+    // =========================================================================
+    // 10. REPORTS (INDIVIDUAL & COLLECTIVE)
+    // =========================================================================
+    match /reports/{reportId} {
+      allow get: if isVerified() && isValidId(reportId) && isActiveUser() && (
+        resource == null ||
+        (existing().type == 'individual' && existing().employeeId == request.auth.uid) ||
+        isManager()
+      );
+
+      allow list: if isVerified() && (
+        resource.data.employeeId == request.auth.uid ||
+        resource.data.generatedBy == request.auth.uid ||
+        isBootstrapAdmin()
+      );
+
+      allow create: if isVerified() && isValidId(reportId) && isValidReport(incoming()) &&
+        incoming().generatedBy == request.auth.uid &&
+        incoming().generatedAt == request.time &&
+        isActiveUser() &&
+        (
+          (incoming().type == 'individual' && incoming().employeeId == request.auth.uid) ||
+          isManager()
+        );
+
+      allow update: if false;
+      allow delete: if isVerified() && isValidId(reportId) && isAdmin();
+    }
+
+    // =========================================================================
+    // 11. REMINDER DELIVERIES (IDEMPOTENCY LOG)
+    // =========================================================================
+    match /reminderDeliveries/{deliveryId} {
+      allow get: if isVerified() && isValidId(deliveryId) && (resource == null || existing().userId == request.auth.uid || isAdmin());
+      allow list: if isVerified() && (resource.data.userId == request.auth.uid || isBootstrapAdmin());
+
+      allow create: if isVerified() && isValidId(deliveryId) && isValidReminderDelivery(incoming()) &&
+        incoming().sentAt == request.time &&
+        isAdmin();
+
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // 12. AUDIT LOGS (IMMUTABLE APPEND-ONLY SECURITY JOURNAL)
+    // =========================================================================
+    match /auditLogs/{logId} {
+      allow get: if isVerified() && isValidId(logId) && isActiveUser() && (
+        resource == null || existing().actorUid == request.auth.uid || isManager()
+      );
+
+      allow list: if isVerified() && (
+        resource.data.actorUid == request.auth.uid ||
+        isBootstrapAdmin()
+      );
+
+      allow create: if isVerified() && isValidId(logId) && isValidAuditLog(incoming()) &&
+        incoming().actorUid == request.auth.uid &&
+        incoming().timestamp == request.time &&
+        isActiveUser();
+
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // 13. TASK LABELS (CUSTOM WORKSPACE LABELS BY PRIORITY / DEPT / PROJECT)
+    // =========================================================================
+    match /taskLabels/{labelId} {
+      allow get: if isVerified() && isValidId(labelId) && isActiveUser();
+      allow list: if isVerified() && resource.data.workspaceVisibility == 'company';
+
+      allow create: if isVerified() && isValidId(labelId) && isValidTaskLabel(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isActiveUser();
+
+      allow update: if isVerified() && isValidId(labelId) && isValidTaskLabel(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        isActiveUser() &&
+        (isManager() || existing().createdBy == request.auth.uid) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'group', 'color', 'updatedAt']);
+
+      allow delete: if isVerified() && isValidId(labelId) && isActiveUser() &&
+        (isManager() || existing().createdBy == request.auth.uid);
+    }
+  }
+}

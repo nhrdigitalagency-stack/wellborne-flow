@@ -1,0 +1,14 @@
+{
+  "firestore": {
+    "database": "ai-studio-6eb74840-4518-4948-afa0-24ce5378f486",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "functions": [
+    {
+      "source": "../functions",
+      "codebase": "default",
+      "predeploy": ["npm --prefix \"$RESOURCE_DIR\" run build"]
+    }
+  ]
+}

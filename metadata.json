@@ -1,0 +1,6 @@
+{
+  "name": "TASKFLOW",
+  "description": "Plateforme collaborative d'entreprise pour la gestion des tâches, missions multi-collaborateurs, planning, rappels quotidiens et rapports de performance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

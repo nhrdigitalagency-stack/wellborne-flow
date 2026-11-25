@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WELLBORNE FLOW — Organisez. Exécutez. Progressez.</title>
+    <meta name="description" content="Plateforme collaborative d'entreprise pour la gestion des tâches, missions multi-collaborateurs, planning, rappels quotidiens et rapports de performance." />
+    <meta property="og:title" content="WELLBORNE FLOW — Organisez. Exécutez. Progressez." />
+    <meta property="og:description" content="Plateforme collaborative d'entreprise pour la gestion des tâches, missions multi-collaborateurs, planning, rappels quotidiens et rapports de performance." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('taskflow_theme');
+          if (saved === 'dark') {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body class="bg-[#F4F6FA] dark:bg-[#0B1320] text-[#172D4D] dark:text-slate-100 antialiased selection:bg-[#EAF2FC] dark:selection:bg-[#1E3A5F] selection:text-[#172D4D] dark:selection:text-slate-100">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

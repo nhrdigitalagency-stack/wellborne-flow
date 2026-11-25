@@ -1,0 +1,89 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --tf-navy: #172D4D;
+    --tf-blue: #3578C8;
+    --tf-blue-soft: #EAF2FC;
+    --tf-canvas: #F4F6FA;
+    --tf-surface: #FFFFFF;
+    --tf-text-muted: #667085;
+    --tf-border: #E2E8F0;
+    --tf-success: #16A36A;
+    --tf-warning: #F59E0B;
+    --tf-danger: #DC4545;
+  }
+
+  .dark {
+    color-scheme: dark;
+    --tf-navy: #F1F5F9;
+    --tf-blue: #60A5FA;
+    --tf-blue-soft: #172A45;
+    --tf-canvas: #0B1320;
+    --tf-surface: #111C2E;
+    --tf-text-muted: #94A3B8;
+    --tf-border: #24334B;
+    --tf-success: #34D399;
+    --tf-warning: #FBBF24;
+    --tf-danger: #F87171;
+  }
+
+  html {
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--tf-navy);
+    background-color: var(--tf-canvas);
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    text-wrap: balance;
+  }
+
+  .font-mono-num {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Focus visible accessibility ring */
+*:focus-visible {
+  outline: 2px solid #3578C8;
+  outline-offset: 2px;
+}
+
+.dark *:focus-visible {
+  outline-color: #60A5FA;
+}
+
+/* Reduced motion preference compliance */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Clean print formatting for reports */
+@media print {
+  aside, header, .no-print {
+    display: none !important;
+  }
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #FFFFFF !important;
+    color: #172D4D !important;
+  }
+  html, body {
+    background: #FFFFFF !important;
+    color: #172D4D !important;
+  }
+}
